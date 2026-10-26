@@ -4,7 +4,7 @@
     <physics name="1ms" type="ignored">
       <max_step_size>0.005</max_step_size>
       <real_time_update_rate>200</real_time_update_rate>
-      <real_time_factor>1.0</real_time_factor>
+      <real_time_factor>4.0</real_time_factor>
     </physics>
 
     <plugin

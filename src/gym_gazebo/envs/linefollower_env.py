@@ -10,7 +10,7 @@ from rclpy.node import Node as RosNode
 from sensor_msgs.msg import Image as RosImage
 from geometry_msgs.msg import Twist as RosTwist
 
-NUM_OBS_STATES = 3
+NUM_OBS_STATES = 4
 NUM_ACTIONS = 3
 
 class LineFollowerEnv(GazeboEnv):
@@ -31,7 +31,7 @@ class LineFollowerEnv(GazeboEnv):
         self.new_obs_event = False
 
         # Setting the observation and action spaces
-        self.observation_space = gym.spaces.Discrete(NUM_OBS_STATES)
+        self.observation_space = gym.spaces.Discrete(NUM_OBS_STATES, start=-1)
         self.action_space = gym.spaces.Discrete(NUM_ACTIONS)
 
         # ROS2 topics
@@ -140,9 +140,22 @@ class LineFollowerEnv(GazeboEnv):
         '''
         vel_cmd = RosTwist()
 
-        # TODO: Impelement process action.
-        
+        speed = 0.2        # Forward speed, m/s; initial tuning value
+        wheel_spacing = 0.18  # TODO: EXAMPLE ONLY: replace with your robot's spacing in metres
+
+        vel_cmd.linear.x = speed
+
+        if action == 0:       # Curve left
+            vel_cmd.angular.z = speed / wheel_spacing
+        elif action == 1:     # Straight
+            vel_cmd.angular.z = 0.0
+        elif action == 2:     # Curve right
+            vel_cmd.angular.z = -speed / wheel_spacing
+        else:
+            raise ValueError(f"Invalid action: {action}")
+
         return vel_cmd
+        
 
 
     def process_reward(self, action, state, terminated):
@@ -153,10 +166,19 @@ class LineFollowerEnv(GazeboEnv):
         '''
         reward = 0
 
-        # TODO: Implement process reward.
-        
-        return reward
+        if terminated or state == -1:
+            if (state == -1 and action == 1):  # Forward
+                return -5.0
+            if (state == -1 and action == 0):  # Right
+                return -7.0
+            return -3.0 #left
 
+        if state == 1:
+            reward = 0.5 
+        if action == 1:  # Forward
+            reward += 0.01
+
+        return reward
 
     def process_obs(self, obs: RosImage):
         '''
@@ -164,8 +186,7 @@ class LineFollowerEnv(GazeboEnv):
                based on the line position (i.e. state=0 line is left, 
                state=1 line is in the center)
         @param obs raw image from Gazebo sim
-        @retval state: the line position as a value: 
-            -1 (no line), 0 (left), 1 (center), 2 (right)
+        @retval state: -1 (no line), 0 (left), 1 (center), 2 (right)
         @retval terminated: the termination condition occured - the line is no 
                     longer in the field of the camera
         '''
@@ -174,9 +195,25 @@ class LineFollowerEnv(GazeboEnv):
         state = 0
         terminated = False
 
-        # TODO: Implement process observation
+        frame = CvBridge().imgmsg_to_cv2(obs, desired_encoding="bgr8")
+        red = frame[:, :, 2]  # BGR image: red is channel 2
+        bottom_row = red[-5,:]
+        road_vals = np.flatnonzero(bottom_row < 100)
+        if road_vals.size == 0:
+            return -1, True  # Line lost; terminate episode
+
+        middle_road = float(np.mean(road_vals))
+        width = frame.shape[1]
+
+        if middle_road < width / 3:
+            state = 0       # Line left
+        elif middle_road < 2 * width / 3:
+            state = 1       # Line centred
+        else:
+            state = 2       # Line right
 
         return state, terminated
+
 
 
     # Shutting down ROS2
